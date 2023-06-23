@@ -1,0 +1,24 @@
+notas de blue team
+
+-crear reglas para detectar escaneos de red. Logica: una ip connectandose por tcp a un equipo a mas de 5 puertos en un corto periodo de tiempo.
+
+-auditar dentro del active directory cuales usuarios tienen habilitado la propiedad llamada "Do not require Kerberos preauthentication".
+comando de powershell: Get-ADUser -Filter 'useraccountcontrol -band 4194304' -Properties useraccountcontrol | Format-Table name
+
+-implementar contrasenas que sean dificiles de adivinar, mas de 13 digitos, minusculas, mayusculas, numeros, signos especiales, evitar frases, y relacion con el usuario.
+
+-monitorear la habilitacion de la propiedad "Do not require Kerberos preauthentication" a traves del codigo de evento de windows 4738.
+
+-auditar creacion de cuentas de usuario  en active directory mediante el evento 4720 y
+relacionarlo con el evento 4728 que detecta cuando usuarios son anadidos a "security-enabled global groups".
+
+-pro tip: en objetos importantes de active directory o honey accounts puedes habilitar Configurar la auditoría de objeto, luego monitoreamos
+el evento de windows 5136 que monitorea cada vez que se modifica una propiedad de un objeto de active directory.
+
+leer mas del tema:
+https://blog.netwrix.com/2022/11/03/cracking_ad_password_with_as_rep_roasting/
+https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventID=5136
+https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5136
+https://www.netwrix.com/how_to_detect_membership_changes_in_domain_admins_group.html
+https://learn.microsoft.com/en-us/troubleshoot/windows-server/windows-security/use-audit-active-directory-objects-track-events
+https://www.alteredsecurity.com/post/a-primer-on-dcsync-attack-and-detection
