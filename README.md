@@ -3,5 +3,5 @@ Somos una comunidad creada para reunir a personas interesadas en la cibersegurid
 
 link redes sociales (whatsapp, telegram, discord, etc): 
 
-[Redes Sociales](Https://HackConRD.org/social)
+[Redes Sociales](Https://HackConRD.org/social/)
 
